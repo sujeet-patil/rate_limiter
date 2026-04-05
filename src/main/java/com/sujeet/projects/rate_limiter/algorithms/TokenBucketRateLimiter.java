@@ -7,11 +7,10 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class TokenBucketRateLimiter implements RateLimiter {
+    private static final int TTL_SECONDS = 600;
     private final int capacity;
     private final double refillRate; // tokens per second
 
@@ -28,6 +27,7 @@ public class TokenBucketRateLimiter implements RateLimiter {
             local capacity    = tonumber(ARGV[1])
             local refill_rate = tonumber(ARGV[2])
             local now         = tonumber(ARGV[3])
+            local ttl         = tonumber(ARGV[4])
             
             local tokens_val     = redis.call('GET', tokens_key)
             local last_refill_val = redis.call('GET', last_refill_key)
@@ -59,6 +59,10 @@ public class TokenBucketRateLimiter implements RateLimiter {
             redis.call('SET', tokens_key,      tostring(tokens))
             redis.call('SET', last_refill_key, tostring(now))
             
+            
+            redis.call('EXPIRE', tokens_key,      ttl)
+            redis.call('EXPIRE', last_refill_key, ttl)
+            
             return allowed
             """;
 
@@ -79,10 +83,11 @@ public class TokenBucketRateLimiter implements RateLimiter {
 
         Long result = redis.execute(
                 rateLimitScript,
-                List.of(tokensKey, lastRefillKey),  // KEYS
-                String.valueOf(capacity),            // ARGV[1]
-                String.valueOf(refillRate),          // ARGV[2]
-                String.valueOf(System.currentTimeMillis()) // ARGV[3]
+                List.of(tokensKey, lastRefillKey),
+                String.valueOf(capacity),
+                String.valueOf(refillRate),
+                String.valueOf(System.currentTimeMillis()) ,
+                String.valueOf(TTL_SECONDS)
         );
 
         return Long.valueOf(1).equals(result);
